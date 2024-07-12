@@ -1,0 +1,12 @@
+*.env
+*.Renviron
+**/venvsl*
+**/venvsn*
+**/Backup*
+**/Data*
+**/data*
+**/mfs-data-reports*
+*.pem
+*.log
+*.pyc
+__pycache__/
