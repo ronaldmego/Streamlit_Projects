@@ -10,3 +10,49 @@
 *.log
 *.pyc
 __pycache__/
+
+
+credentials.json
+token.pickle
+
+#Env files
+**/__pycache__*
+*.env**
+*.Renviron
+
+#Ignore csv data files
+*.csv
+*.xlsx
+*.log
+*.zip
+*.gz
+*.pdf
+*.pem
+
+#Ignore Folder or subfolders
+**/Database*
+**/MFS_TigoMoney_rm*
+**/ST-EDA-usage_files*
+**/backup*
+**/test*
+**/venv*
+**/env*
+**/new_virtual_environment*
+**/.env*
+**/aws/*
+**/Back*
+**/data/*
+
+# Ignore RStudio project user files
+.Rhistory
+.Rproj.user
+/.quarto/
+**rsconnect/*
+.Rproj.user
+.Rprofile
+server-template.R
+
+# Elastic Beanstalk Files
+.elasticbeanstalk/*
+!.elasticbeanstalk/*.cfg.yml
+!.elasticbeanstalk/*.global.yml

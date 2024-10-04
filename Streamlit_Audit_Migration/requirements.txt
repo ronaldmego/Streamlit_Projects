@@ -1,0 +1,7 @@
+streamlit
+snowflake-connector-python
+psycopg2-binary
+python-dotenv
+pandas
+matplotlib
+fpdf
