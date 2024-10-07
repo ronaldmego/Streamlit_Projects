@@ -18,10 +18,10 @@ def get_redshift_connection():
             host=os.getenv('HOST'),
             port=os.getenv('PORT')
         )
-        return conn
+        return conn, None
     except Exception as e:
         print(f"Error al conectar con Redshift: {e}")
-        return None
+        return None, str(e)
 
 def check_table_exists_redshift(full_table_name):
     """
@@ -32,9 +32,9 @@ def check_table_exists_redshift(full_table_name):
     - database.schema.table_name
     Nota: Redshift no utiliza el concepto de base de datos como Snowflake, así que generalmente se usa schema.table_name
     """
-    conn = get_redshift_connection()
+    conn, error = get_redshift_connection()
     if not conn:
-        return False, "Conexión fallida"
+        return False, error
     
     try:
         cur = conn.cursor()
@@ -79,9 +79,9 @@ def query_redshift_sample(table_name, date_value, date_column='time_extracted', 
     """
     Realiza un SELECT * con filtro de fecha y límite en Redshift.
     """
-    conn = get_redshift_connection()
+    conn, error = get_redshift_connection()
     if not conn:
-        return None, "Conexión fallida"
+        return None, error
     
     try:
         cur = conn.cursor()
@@ -110,9 +110,9 @@ def get_total_record_count_redshift(table_name):
     """
     Obtiene el conteo total de registros en la tabla especificada en Redshift.
     """
-    conn = get_redshift_connection()
+    conn, error = get_redshift_connection()
     if not conn:
-        return None, "Conexión fallida"
+        return None, error
     
     try:
         cur = conn.cursor()
@@ -128,31 +128,33 @@ def get_total_record_count_redshift(table_name):
         cur.close()
         conn.close()
 
-def get_record_count_by_date_redshift(table_name, date_column='time_extracted', days=5):
+def get_record_count_by_date_redshift(table_name, date_column='time_extracted', sample_date=None, days=5):
     """
-    Obtiene el conteo de registros agrupados por fecha para los últimos 'days' días en Redshift.
+    Obtiene el conteo de registros agrupados por fecha para los últimos 'days' días a partir de 'sample_date' en Redshift.
     """
-    conn = get_redshift_connection()
+    conn, error = get_redshift_connection()
     if not conn:
-        return None, "Conexión fallida"
-    
+        return None, error
+
+    if sample_date is None:
+        return None, "El parámetro 'sample_date' es requerido."
+
     try:
         cur = conn.cursor()
-        query = sql.SQL("""
-            SELECT DATE({}) AS extraction_date, COUNT(*) AS record_count
-            FROM {}
-            WHERE DATE({}) >= DATEADD(day, -%s, CURRENT_DATE)
-            GROUP BY DATE({})
+        sample_date_str = sample_date.strftime('%Y-%m-%d')
+
+        # Construir la consulta con parámetros
+        query = f"""
+            SELECT DATE({date_column}) AS extraction_date, COUNT(*) AS count
+            FROM {table_name}
+            WHERE DATE({date_column}) BETWEEN DATEADD(day, -%s, %s::DATE) AND %s::DATE
+            GROUP BY DATE({date_column})
             ORDER BY extraction_date DESC
-        """).format(
-            sql.Identifier(date_column),
-            sql.Identifier(*table_name.split('.')),
-            sql.Identifier(date_column),
-            sql.Identifier(date_column)
-        )
-        cur.execute(query, (days-1,))
+        """
+        # Ejecutar la consulta con parámetros
+        cur.execute(query, (days-1, sample_date_str, sample_date_str))
         results = cur.fetchall()
-        df = pd.DataFrame(results, columns=['extraction_date', 'record_count'])
+        df = pd.DataFrame(results, columns=['extraction_date', 'count'])
         return df, None
     except Exception as e:
         return None, str(e)
@@ -164,9 +166,9 @@ def get_columns_redshift(table_name):
     """
     Obtiene la estructura de las columnas de una tabla en Redshift.
     """
-    conn = get_redshift_connection()
+    conn, error = get_redshift_connection()
     if not conn:
-        return None, "Conexión fallida"
+        return None, error
 
     try:
         cur = conn.cursor()
@@ -197,3 +199,38 @@ def get_columns_redshift(table_name):
     finally:
         cur.close()
         conn.close()
+
+def get_top_frequent_data_redshift(table_name, date_column, sample_date, column, top_n=5):
+    """
+    Obtiene los top_n datos más frecuentes para una columna específica en Redshift para una fecha dada.
+    
+    Args:
+        table_name (str): Nombre completo de la tabla.
+        date_column (str): Nombre de la columna de fecha.
+        sample_date (datetime.date): Fecha de muestreo.
+        column (str): Nombre de la columna a analizar.
+        top_n (int): Número de datos más frecuentes a obtener.
+    
+    Returns:
+        tuple: (DataFrame, error)
+    """
+    conn, error = get_redshift_connection()
+    if not conn:
+        return None, error
+    
+    query = f"""
+    SELECT {column} AS value, COUNT(*) AS count
+    FROM {table_name}
+    WHERE DATE({date_column}) = '{sample_date.strftime('%Y-%m-%d')}'
+    GROUP BY {column}
+    ORDER BY count DESC
+    LIMIT {top_n};
+    """
+    
+    try:
+        df = pd.read_sql(query, conn)
+        conn.close()
+        return df, None
+    except Exception as e:
+        conn.close()
+        return None, str(e)

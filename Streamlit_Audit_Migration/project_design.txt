@@ -1,0 +1,20 @@
+proyecto/
+├── audit_app.py
+├── .env
+├── scripts/
+│   ├── __init__.py
+│   ├── redshift_connection.py
+│   ├── snowflake_connection.py
+│   └── report_generation.py
+├── utils/
+│   ├── __init__.py
+│   └── helpers.py
+├── sections/
+│   ├── __init__.py
+│   ├── verify_table.py
+│   ├── sample_query.py
+│   ├── compare_total_records.py
+│   ├── compare_records_by_date.py
+│   ├── compare_columns.py
+│   └── generate_report.py
+└── requirements.txt

@@ -18,10 +18,10 @@ def get_snowflake_connection():
             database=os.getenv('DATABASE_SNOW'),
             schema=os.getenv('SCHEMA_SNOW')
         )
-        return conn
+        return conn, None
     except Exception as e:
         print(f"Error al conectar con Snowflake: {e}")
-        return None
+        return None, str(e)
 
 def check_table_exists_snowflake(full_table_name):
     """
@@ -31,9 +31,9 @@ def check_table_exists_snowflake(full_table_name):
     - schema.table_name
     - database.schema.table_name
     """
-    conn = get_snowflake_connection()
+    conn, error = get_snowflake_connection()
     if not conn:
-        return False, "Conexión fallida"
+        return False, error
     
     try:
         cs = conn.cursor()
@@ -55,9 +55,9 @@ def check_table_exists_snowflake(full_table_name):
         else:
             return False, "Formato de nombre de tabla inválido"
         
-        query = f"""
+        query = """
             SELECT COUNT(*) 
-            FROM {database_name}.INFORMATION_SCHEMA.TABLES 
+            FROM INFORMATION_SCHEMA.TABLES 
             WHERE TABLE_SCHEMA = %s 
               AND TABLE_NAME = %s
         """
@@ -75,9 +75,9 @@ def query_snowflake_sample(table_name, date_value, date_column='time_extracted',
     """
     Realiza un SELECT * con filtro de fecha y límite en Snowflake.
     """
-    conn = get_snowflake_connection()
+    conn, error = get_snowflake_connection()
     if not conn:
-        return None, "Conexión fallida"
+        return None, error
     
     try:
         cs = conn.cursor()
@@ -101,9 +101,9 @@ def get_total_record_count_snowflake(table_name):
     """
     Obtiene el conteo total de registros en la tabla especificada en Snowflake.
     """
-    conn = get_snowflake_connection()
+    conn, error = get_snowflake_connection()
     if not conn:
-        return None, "Conexión fallida"
+        return None, error
     
     try:
         cs = conn.cursor()
@@ -117,26 +117,34 @@ def get_total_record_count_snowflake(table_name):
         cs.close()
         conn.close()
 
-def get_record_count_by_date_snowflake(table_name, date_column='time_extracted', days=5):
+def get_record_count_by_date_snowflake(table_name, date_column='time_extracted', sample_date=None, days=5):
     """
-    Obtiene el conteo de registros agrupados por fecha para los últimos 'days' días en Snowflake.
+    Obtiene el conteo de registros agrupados por fecha para los últimos 'days' días a partir de 'sample_date' en Snowflake.
     """
-    conn = get_snowflake_connection()
+    conn, error = get_snowflake_connection()
     if not conn:
-        return None, "Conexión fallida"
-    
+        return None, error
+
+    if sample_date is None:
+        return None, "El parámetro 'sample_date' es requerido."
+
     try:
         cs = conn.cursor()
+        # Convertir sample_date a string en formato 'YYYY-MM-DD'
+        sample_date_str = sample_date.strftime('%Y-%m-%d')
+
+        # Construir la consulta con parámetros
         query = f"""
-            SELECT DATE({date_column}) AS extraction_date, COUNT(*) AS record_count
+            SELECT DATE({date_column}) AS extraction_date, COUNT(*) AS count
             FROM {table_name}
-            WHERE DATE({date_column}) >= DATEADD(day, -{days-1}, CURRENT_DATE)
+            WHERE DATE({date_column}) BETWEEN DATEADD(day, -%s, %s::DATE) AND %s::DATE
             GROUP BY DATE({date_column})
             ORDER BY extraction_date DESC
         """
-        cs.execute(query)
+        # Ejecutar la consulta con parámetros
+        cs.execute(query, (days-1, sample_date_str, sample_date_str))
         results = cs.fetchall()
-        df = pd.DataFrame(results, columns=['extraction_date', 'record_count'])
+        df = pd.DataFrame(results, columns=['extraction_date', 'count'])
         return df, None
     except Exception as e:
         return None, str(e)
@@ -148,13 +156,13 @@ def get_columns_snowflake(table_name):
     """
     Obtiene la estructura de las columnas de una tabla en Snowflake.
     """
-    conn = get_snowflake_connection()
+    conn, error = get_snowflake_connection()
     if not conn:
-        return None, "Conexión fallida"
+        return None, error
 
     try:
         cs = conn.cursor()
-        query = f"""
+        query = """
             SELECT COLUMN_NAME, DATA_TYPE
             FROM INFORMATION_SCHEMA.COLUMNS
             WHERE TABLE_NAME = %s AND TABLE_SCHEMA = %s
@@ -181,3 +189,38 @@ def get_columns_snowflake(table_name):
     finally:
         cs.close()
         conn.close()
+
+def get_top_frequent_data_snowflake(table_name, date_column, sample_date, column, top_n=5):
+    """
+    Obtiene los top_n datos más frecuentes para una columna específica en Snowflake para una fecha dada.
+    
+    Args:
+        table_name (str): Nombre completo de la tabla.
+        date_column (str): Nombre de la columna de fecha.
+        sample_date (datetime.date): Fecha de muestreo.
+        column (str): Nombre de la columna a analizar.
+        top_n (int): Número de datos más frecuentes a obtener.
+    
+    Returns:
+        tuple: (DataFrame, error)
+    """
+    conn, error = get_snowflake_connection()
+    if not conn:
+        return None, error
+    
+    query = f"""
+    SELECT {column} AS value, COUNT(*) AS count
+    FROM {table_name}
+    WHERE DATE({date_column}) = '{sample_date.strftime('%Y-%m-%d')}'
+    GROUP BY {column}
+    ORDER BY count DESC, value asc
+    LIMIT {top_n};
+    """
+    
+    try:
+        df = pd.read_sql(query, conn)
+        conn.close()
+        return df, None
+    except Exception as e:
+        conn.close()
+        return None, str(e)
